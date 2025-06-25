@@ -1,0 +1,5 @@
+{
+    "url": "http://your-jellyfin-server:8096",
+    "api_key": "your-api-key-here",
+    "library_path": "/path/to/jellyfin/metadata/library"
+}
