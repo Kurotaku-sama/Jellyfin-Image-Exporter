@@ -14,6 +14,9 @@ items_to_include = [
     "README.md"
 ]
 
+programm_name = "Jellyfin Image Exporter"
+
+
 def add_to_zip(zipf, path, base_folder):
     """
     Recursively add a file or directory to the ZIP archive.
@@ -54,7 +57,7 @@ def build_release_zip():
     Inside the ZIP, all files and folders will be contained within a top-level
     directory named "Jellyfin Image Exporter VX.X.X" to keep everything organized.
     """
-    folder_name = f"Jellyfin Image Exporter V{VERSION}"
+    folder_name = f"{programm_name.replace(' ', '-')}-V{VERSION}"
     zip_name = folder_name + ".zip"
     print(f"Creating release zip: {zip_name}")
 
