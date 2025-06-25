@@ -43,7 +43,7 @@ The script uses Jellyfin's internal metadata structure and mimics the folder lay
 ## Installation
 
 1. Ensure you have **Python 3.8+** installed
-2. Clone or download this repository
+2. Download the programm via releases
 3. Run `main.py` to start the application
 
 ---
