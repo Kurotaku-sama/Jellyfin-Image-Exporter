@@ -46,6 +46,13 @@ The script uses Jellyfin's internal metadata structure and mimics the folder lay
 2. Download the programm via releases
 3. Run `main.py` to start the application
 
+### ⚠️ Info for Windows users:
+The `readline` module is not included by default on Windows.
+Install the replacement with:<br>
+```bash
+pip install pyreadline3
+```
+
 ---
 
 ## Usage
