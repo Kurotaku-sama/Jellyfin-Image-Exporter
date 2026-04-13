@@ -136,21 +136,31 @@ class Exporter:
                 print(f"  Source file not found: {src_path}")
                 counters[4] = 1
                 return tuple(counters)
+            
+            ## Previous logic for overwriting
+            # if os.path.exists(dest_file):
+            #     src_stat = os.stat(src_path)
+            #     dest_stat = os.stat(dest_file)
 
+            #     if src_stat.st_size == dest_stat.st_size and src_stat.st_mtime <= dest_stat.st_mtime:
+            #         print(f"  Skipped (identical): {os.path.basename(dest_file)}")
+            #         counters[1] = 1
+            #     elif src_stat.st_mtime > dest_stat.st_mtime:
+            #         shutil.copy2(src_path, dest_file)
+            #         print(f"  Updated (newer version): {os.path.basename(dest_file)}")
+            #         counters[2] = 1
+            #     else:
+            #         print(f"  Kept existing (newer): {os.path.basename(dest_file)}")
+            #         counters[3] = 1
+            # else:
+            #     shutil.copy2(src_path, dest_file)
+            #     print(f"  Copied: {os.path.basename(dest_file)}")
+            #     counters[0] = 1
+            
+            # Don't overwrite if file already exists
             if os.path.exists(dest_file):
-                src_stat = os.stat(src_path)
-                dest_stat = os.stat(dest_file)
-
-                if src_stat.st_size == dest_stat.st_size and src_stat.st_mtime <= dest_stat.st_mtime:
-                    print(f"  Skipped (identical): {os.path.basename(dest_file)}")
-                    counters[1] = 1
-                elif src_stat.st_mtime > dest_stat.st_mtime:
-                    shutil.copy2(src_path, dest_file)
-                    print(f"  Updated (newer version): {os.path.basename(dest_file)}")
-                    counters[2] = 1
-                else:
-                    print(f"  Kept existing (newer): {os.path.basename(dest_file)}")
-                    counters[3] = 1
+                print(f"  Kept existing: {os.path.basename(dest_file)}")
+                counters[3] = 1
             else:
                 shutil.copy2(src_path, dest_file)
                 print(f"  Copied: {os.path.basename(dest_file)}")
@@ -229,8 +239,13 @@ class Exporter:
 
         # Process each series in the collection
         for series in structured_data["series_collection"]:
+            # Determine target path based on export method
             if export_method == "single":
                 current_target_path = target_paths[0]
+                target_idx = Exporter._get_matching_root_index(series["path"], library_roots)
+                if target_idx is None:
+                    print(f"WARNING: No matching root path for series {series['folder_name']}")
+                    continue
             else:
                 target_idx = Exporter._get_matching_root_index(series["path"], library_roots)
                 if target_idx is None or target_idx >= len(target_paths):
@@ -238,7 +253,19 @@ class Exporter:
                     continue
                 current_target_path = target_paths[target_idx]
 
-            dest_dir = os.path.join(current_target_path, series["folder_name"])
+            # Calculate relative path from library root
+            norm_series_path = Exporter.normalize_path(series["path"])
+            norm_library_root = Exporter.normalize_path(library_roots[target_idx])
+
+            if not norm_library_root.endswith(os.sep):
+                norm_library_root += os.sep
+
+            if norm_series_path.startswith(norm_library_root):
+                rel_path = norm_series_path[len(norm_library_root):].strip("/\\")
+            else:
+                rel_path = series["folder_name"]
+
+            dest_dir = os.path.join(current_target_path, rel_path)
 
             # Check if there are any files to copy before creating the directory
             has_files_to_copy = False
@@ -284,7 +311,7 @@ class Exporter:
                 lambda: Exporter._process_season_images(series, dest_dir, library_metadata_path),
 
                 # 3. Process episode thumbnails (if enabled)
-                lambda: Exporter._process_episode_thumbnails(jellyfin, series, current_target_path, library_metadata_path)
+                lambda: Exporter._process_episode_thumbnails(jellyfin, series, dest_dir, library_metadata_path)
                     if export_options.get("export_episode_thumbs", False)
                     else (0,) * 7  # Return zero counters if disabled
             ]
@@ -397,28 +424,28 @@ class Exporter:
         return tuple(counters)
 
     @staticmethod
-    def _process_episode_thumbnails(jellyfin, series, target_path, library_metadata_path):
+    def _process_episode_thumbnails(jellyfin, series, series_dest_dir, library_metadata_path):
         """
-        Exports episode thumbnails if enabled in export options.
+        Exports all episode-level images if enabled in export options.
         """
         counters = [0]*7  # Initialize all counters to 0
 
         # Get all episodes for the series from Jellyfin
         episodes = jellyfin.get_episodes(series["id"])
 
-        # First check if there are any episode thumbnails to copy
-        has_thumbnails_to_copy = False
+        # First check if there are any episode images to copy at all
+        has_episode_images_to_copy = False
         for episode in episodes:
             episode_images = jellyfin.get_item_images(episode["Id"])
-            if episode_images["metadata_dir"] and any(f.lower() == "poster.jpg" for f in episode_images["files"]):
-                has_thumbnails_to_copy = True
+            if episode_images["metadata_dir"] and len(episode_images["files"]) > 0:
+                has_episode_images_to_copy = True
                 break
 
-        if not has_thumbnails_to_copy:
-            print("  No episode thumbnails found")
+        if not has_episode_images_to_copy:
+            print("  No episode images found")
             return tuple(counters)
 
-        print("Processing episode thumbnails:")
+        print("Processing episode images:")
         for episode in episodes:
             try:
                 # Get episode images and metadata
@@ -429,38 +456,47 @@ class Exporter:
                     continue
 
                 # Calculate relative path within the series
-                rel_path = os.path.dirname(episode["Path"].replace(series["path"], "", 1)).strip("/\\")
-                dest_dir = os.path.join(target_path, series["folder_name"], rel_path)
+                rel_path = os.path.dirname(
+                    episode["Path"].replace(series["path"], "", 1)
+                ).strip("/\\")
+                dest_dir = os.path.join(series_dest_dir, rel_path)
 
-                # Only create directory if we actually have thumbnails to copy
-                if any(f.lower() == "poster.jpg" for f in episode_images["files"]):
-                    if Exporter._safe_makedirs(dest_dir):
-                        if "\\\\?\\" in dest_dir:  # Track long path usage
-                            counters[6] += 1
+                # Only create directory if we actually have images to copy
+                if len(episode_images["files"]) > 0:
+                    success, is_long_path = Exporter._safe_makedirs(dest_dir)
+                    if success and is_long_path:
+                        counters[6] += 1
 
                 # Sanitize episode name for filesystem use
-                episode_name = re.sub(r'[\\/*?:"<>|]', "",
-                                    os.path.splitext(os.path.basename(episode["Path"]))[0])
+                episode_name = re.sub(
+                    r'[\\/*?:"<>|]',
+                    "",
+                    os.path.splitext(os.path.basename(episode["Path"]))[0]
+                )
 
-                # Process each image file (we only want poster.jpg)
+                # Process each episode image file
                 for filename in episode_images["files"]:
                     try:
-                        # Skip non-thumbnail files
-                        if filename.lower() != "poster.jpg":
-                            continue
+                        # Build full source path
+                        src_path = os.path.join(
+                            library_metadata_path,
+                            episode_images["metadata_dir"],
+                            filename
+                        )
 
-                        # Build full paths
-                        src_path = os.path.join(library_metadata_path,
-                                            episode_images["metadata_dir"],
-                                            filename)
-                        dest_file = os.path.join(dest_dir, f"{episode_name}-thumb.jpg")
+                        # Keep image type + extension in destination name
+                        image_base, image_ext = os.path.splitext(filename)
+                        dest_file = os.path.join(
+                            dest_dir,
+                            f"{episode_name}-{image_base}{image_ext}"
+                        )
 
                         # Copy and count operations
                         new_counts = Exporter._copy_file_with_comparison(src_path, dest_file)
                         counters = [sum(x) for x in zip(counters, new_counts)]
 
                     except Exception as e:
-                        print(f"Error processing episode thumb {filename}: {e}")
+                        print(f"Error processing episode image {filename}: {e}")
                         counters[5] += 1
 
             except Exception as e:
