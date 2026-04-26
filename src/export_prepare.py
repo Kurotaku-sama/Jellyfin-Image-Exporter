@@ -17,16 +17,85 @@ class ExportPrepare:
         Returns:
             Structured data ready for export, or None if preparation failed
         """
-        collection_type = library_obj.get("CollectionType", "").lower()
-
+        collection_type = (library_obj.get("CollectionType") or "").lower()
+        
         # Route to appropriate preparation method based on library type
         if collection_type == "tvshows":
             return ExportPrepare._prepare_series_data(jellyfin, library_obj)
         elif collection_type == "movies":
             return ExportPrepare._prepare_movie_data(jellyfin, library_obj)
 
-        print(f"\nERROR: Unsupported Library Type: {collection_type}")
-        return None
+        #Otherwise prepare mixed data.
+        return ExportPrepare._prepare_mixed_data(jellyfin, library_obj)
+
+    @staticmethod
+    def _prepare_mixed_data(jellyfin, library_obj):
+        """
+        Prepares structured data for mixed libraries containing both series and movies.
+        """
+        library_id = library_obj["ItemId"]
+        library_root = library_obj.get("Locations", [])
+        library_name = library_obj["Name"]
+
+        items = jellyfin.get_library_items(library_id)
+        if not items:
+            print("\nNo supported items found in this library")
+            return None
+
+        series_collection = []
+        movie_collection = []
+
+        for item in items:
+            item_type = item.get("Type")
+
+            if item_type == "Series":
+                item_path = item.get("Path", "")
+                folder_name = os.path.basename(item_path.rstrip("/"))
+                images_data = jellyfin.get_item_images(item["Id"])
+
+                seasons_data = []
+                seasons = jellyfin.get_seasons(item["Id"])
+                for season in seasons:
+                    season_images = jellyfin.get_item_images(season["Id"])
+                    seasons_data.append({
+                        "season_number": season.get("IndexNumber", "Unknown"),
+                        "metadata_dir": season_images["metadata_dir"],
+                        "files": season_images["files"]
+                    })
+
+                series_collection.append({
+                    "id": item["Id"],
+                    "folder_name": folder_name,
+                    "metadata_dir": images_data["metadata_dir"],
+                    "series_files": images_data["files"],
+                    "seasons": seasons_data,
+                    "path": item_path
+                })
+
+            elif item_type == "Movie":
+                item_path = item.get("Path", "")
+                images_data = jellyfin.get_item_images(item["Id"])
+
+                movie_collection.append({
+                    "id": item["Id"],
+                    "path": item_path,
+                    "filename": os.path.basename(item_path),
+                    "folder_path": os.path.dirname(item_path),
+                    "metadata_dir": images_data["metadata_dir"],
+                    "files": images_data["files"]
+                })
+
+        if not series_collection and not movie_collection:
+            print("\nNo series or movies found in this library")
+            return None
+
+        return {
+            "type": "mixed",
+            "series_collection": series_collection,
+            "movie_collection": movie_collection,
+            "library_root": library_root,
+            "library_name": library_name
+        }
 
     @staticmethod
     def _prepare_series_data(jellyfin, library_obj):
@@ -183,3 +252,25 @@ class ExportPrepare:
                 # Print all movie files (sorted alphabetically)
                 for filename in sorted(movie["files"]):
                     print(f"- {filename}")
+                    
+        elif structured_data["type"] == "mixed":
+            if structured_data["series_collection"]:
+                print("\n=== Series Items ===")
+                for series in structured_data["series_collection"]:
+                    print(f"\n{series['folder_name']} [Metadata: {series['metadata_dir']}]")
+
+                    for filename in sorted(series["series_files"]):
+                        print(f"- {filename}")
+
+                    for season in series["seasons"]:
+                        print(f"\n  Season {season['season_number']} [Metdata: {series['metadata_dir']}]")
+                        for filename in sorted(season["files"]):
+                            print(f"  - {filename}")
+
+            if structured_data["movie_collection"]:
+                print("\n=== Movie Items ===")
+                for movie in structured_data["movie_collection"]:
+                    print(f"\n{movie['filename']} [Metadata: {movie['metadata_dir']}]")
+
+                    for filename in sorted(movie["files"]):
+                        print(f"- {filename}")

@@ -172,20 +172,18 @@ class MenuLibrary:
                 # Initialize lists for different library types
                 series_libraries      = []  # TV Show libraries
                 movie_libraries       = []  # Movie libraries
-                unsupported_libraries = []  # Libraries of unsupported types
+                other_libraries       = []  # Other types
 
                 # Categorize each library by its type
                 for lib in raw_libraries:
                     collection_type = lib.get("CollectionType", "").lower()
 
-                    if collection_type not in ("tvshows", "movies"):
-                        unsupported_libraries.append(lib)
-                    elif collection_type == "tvshows":
+                    if collection_type == "tvshows":
                         series_libraries.append(lib)
                     elif collection_type == "movies":
                         movie_libraries.append(lib)
                     else:
-                        continue  # Skip any unhandled types
+                        other_libraries.append(lib)  # Skip any unhandled types
 
                 current_index = 1  # Starting menu index
                 selection_map = {}  # Maps menu numbers to library objects
@@ -210,10 +208,13 @@ class MenuLibrary:
                         selection_map[current_index] = lib
                         current_index += 1
 
-                # Display informational section about unsupported libraries
-                if unsupported_libraries:
-                    print("\n=== Unsupported Libraries ===")
-                    print(" | ".join([lib["Name"] for lib in unsupported_libraries]))
+                # Display informational section about other libraries
+                if other_libraries:
+                    print("\n=== Other Libraries ===")
+                    for lib in other_libraries:
+                        print(f"{str(current_index).rjust(index_width)}. {lib['Name']}")
+                        selection_map[current_index] = lib
+                        current_index += 1
 
                 choice = input("\nSelect library: ").strip()
 

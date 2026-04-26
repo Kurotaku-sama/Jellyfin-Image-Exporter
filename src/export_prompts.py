@@ -83,11 +83,16 @@ class ExportPrompts:
                 elif choice == "n":
                     return
 
-        # --- Episode Thumbnails Option (Series Only) ---
-        if structured_data["type"] in ("series", "tvshows"):
+        ## --- Episode Images Option (Series or Mixed Libraries With Series) ---
+        has_series_items = (
+            structured_data["type"] in ("series", "tvshows")
+            or (structured_data["type"] == "mixed" and len(structured_data.get("series_collection", [])) > 0)
+        )
+
+        if has_series_items:
             while True:
                 ExportPrompts._show_export_configuration(export_options, structured_data)
-                print("Include episode thumbnails? [y/n]")
+                print("Include episode images? [y/n]")
                 choice = input("→ ").strip().lower()
                 if choice in ("y", "j"):
                     export_options["export_episode_thumbs"] = True
@@ -202,10 +207,29 @@ class ExportPrompts:
             choice = input("→ ").strip().lower()
             if choice in ("y", "j"):
                 ExportPrompts._show_export_configuration(export_options, structured_data)
+
                 if structured_data["type"] == "series":
                     Exporter.export_series_images(jellyfin, structured_data, export_options)
                 elif structured_data["type"] == "movies":
                     Exporter.export_movie_images(jellyfin, structured_data, export_options)
+                elif structured_data["type"] == "mixed":
+                    if structured_data.get("series_collection"):
+                        series_data = {
+                            "type": "series",
+                            "series_collection": structured_data["series_collection"],
+                            "library_root": structured_data["library_root"],
+                            "library_name": structured_data["library_name"]
+                        }
+                        Exporter.export_series_images(jellyfin, series_data, export_options)
+
+                    if structured_data.get("movie_collection"):
+                        movie_data = {
+                            "type": "movies",
+                            "movie_collection": structured_data["movie_collection"],
+                            "library_root": structured_data["library_root"],
+                            "library_name": structured_data["library_name"]
+                        }
+                        Exporter.export_movie_images(jellyfin, movie_data, export_options)
                 return
             elif choice == "n":
                 return
