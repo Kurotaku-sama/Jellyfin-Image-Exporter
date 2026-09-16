@@ -3,6 +3,7 @@ sys.dont_write_bytecode = True
 import json
 import re
 import urllib.request
+import urllib.error
 
 class Jellyfin:
     """
@@ -23,12 +24,69 @@ class Jellyfin:
         self.api_key = api_key
         self.library_path = library_path
 
-    def _get_headers(self):
-        """Return headers required for Jellyfin API requests"""
-        return {
-            "X-Emby-Token": self.api_key,   # Authentication header
-            "Accept": "application/json"    # Request JSON responses
-        }
+        # Index into _auth_header_styles() that last succeeded for this
+        # instance. None until the first request, at which point both
+        # styles get tried once and whichever works is locked in.
+        self._working_auth_index = None
+
+    def _auth_header_styles(self):
+        """
+        Returns both known Jellyfin auth header styles, in the order they
+        should be tried. The new Authorization header is required by
+        Jellyfin 12.0+, since 12.0 disabled the legacy X-Emby-Token header
+        by default. Older Jellyfin versions (10.x) still require
+        X-Emby-Token instead.
+        """
+        return (
+            {"Authorization": f'MediaBrowser Token="{self.api_key}"'},
+            {"X-Emby-Token": self.api_key},
+        )
+
+    def _request_with_auth_fallback(self, url, timeout=None):
+        """
+        Opens a Jellyfin API URL, trying the last known-working auth header
+        style first (both styles on the very first call for this instance).
+        Falls back to the other style only if the current one is rejected
+        with 401, and remembers whichever style succeeds so later calls
+        use it directly instead of testing both every time.
+
+        Args:
+            url (str): Full request URL
+            timeout (int|None): Optional request timeout in seconds
+
+        Returns:
+            http.client.HTTPResponse: The opened response, ready for a
+            `with` block by the caller
+
+        Raises:
+            urllib.error.HTTPError: If neither header style is accepted,
+                the last 401 is re-raised. Any non-401 HTTP error is
+                raised immediately without trying the other style.
+        """
+        styles = self._auth_header_styles()
+        start_index = self._working_auth_index if self._working_auth_index is not None else 0
+
+        last_error = None
+        for offset in range(len(styles)):
+            index = (start_index + offset) % len(styles)
+            headers = {
+                **styles[index],
+                "Accept": "application/json",
+                "User-Agent": "JellyfinImageExporter/1.0",
+            }
+            req = urllib.request.Request(url, headers=headers)
+
+            try:
+                response = urllib.request.urlopen(req, timeout=timeout)
+                self._working_auth_index = index
+                return response
+            except urllib.error.HTTPError as e:
+                last_error = e
+                if e.code != 401:
+                    raise
+                continue
+
+        raise last_error
 
     def _get_json(self, path):
         """
@@ -41,11 +99,7 @@ class Jellyfin:
             list/dict: Parsed JSON response or empty list on error
         """
         try:
-            req = urllib.request.Request(
-                f"{self.url}/{path}",
-                headers=self._get_headers()
-            )
-            with urllib.request.urlopen(req) as response:
+            with self._request_with_auth_fallback(f"{self.url}/{path}") as response:
                 data = json.load(response)
                 return data.get("Items", []) if isinstance(data, dict) else data
         except Exception as e:
@@ -69,13 +123,9 @@ class Jellyfin:
             protocols = [""]  # Already has protocol
 
         for proto in protocols:
+            test_url = f"{proto}{self.url}/Users"
             try:
-                test_url = f"{proto}{self.url}/Users"
-                req = urllib.request.Request(
-                    test_url,
-                    headers=self._get_headers()
-                )
-                with urllib.request.urlopen(req, timeout=5) as response:
+                with self._request_with_auth_fallback(test_url, timeout=5) as response:
                     if response.status == 200:
                         self.url = f"{proto}{self.url}"  # Save correct URL format
                         return True
@@ -96,11 +146,7 @@ class Jellyfin:
                   Format: {'metadata_dir': str, 'files': list}
         """
         try:
-            req = urllib.request.Request(
-                f"{self.url}/Items/{item_id}/Images",
-                headers=self._get_headers()
-            )
-            with urllib.request.urlopen(req) as response:
+            with self._request_with_auth_fallback(f"{self.url}/Items/{item_id}/Images") as response:
                 images = json.load(response)
                 files = []
                 metadata_dir = None
@@ -159,8 +205,7 @@ class Jellyfin:
                 f"IncludeItemTypes=Movie,Series&"
                 f"fields=Path,ImageTags,Id,Name,Type"
             )
-            req = urllib.request.Request(url, headers=self._get_headers())
-            with urllib.request.urlopen(req) as response:
+            with self._request_with_auth_fallback(url) as response:
                 return json.load(response).get("Items", [])
         except Exception as e:
             print(f"Error fetching library items: {str(e)}")
@@ -178,8 +223,7 @@ class Jellyfin:
         """
         try:
             url = f"{self.url}/Shows/{series_id}/Seasons"
-            req = urllib.request.Request(url, headers=self._get_headers())
-            with urllib.request.urlopen(req) as response:
+            with self._request_with_auth_fallback(url) as response:
                 return json.load(response).get("Items", [])
         except Exception as e:
             print(f"Error fetching seasons: {str(e)}")
@@ -197,8 +241,7 @@ class Jellyfin:
         """
         try:
             url = f"{self.url}/Shows/{series_id}/Episodes?Fields=Path,ParentIndexNumber,IndexNumber"
-            req = urllib.request.Request(url, headers=self._get_headers())
-            with urllib.request.urlopen(req) as response:
+            with self._request_with_auth_fallback(url) as response:
                 data = json.load(response)
                 return data.get("Items", [])
         except Exception as e:
