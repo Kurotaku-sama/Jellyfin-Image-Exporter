@@ -33,8 +33,9 @@ class VersionChecker:
 
                 release_data = json.loads(response.read().decode("utf-8"))
 
-                # Extract the tag_name, e.g. 'v1.2.3' and strip leading 'v' if present
-                remote_version = release_data.get("tag_name", "").lstrip("v")
+                # Extract the tag_name, e.g. 'v1.2.3' or 'V1.2.3', and strip
+                # a leading v/V if present regardless of its case
+                remote_version = release_data.get("tag_name", "").lstrip("vV")
 
                 if not remote_version:
                     print(Colors.wrap("\n❌ Could not find 'tag_name' in the latest release data.", Colors.RED))
