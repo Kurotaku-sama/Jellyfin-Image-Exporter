@@ -2,14 +2,12 @@ import sys
 sys.dont_write_bytecode = True
 import os
 import zipfile
-from config import VERSION
+from src.version import VERSION
 
 # List of files and directories to include in the release ZIP
 items_to_include = [
     "src",
     "main.py",
-    "config.py",
-    "connection_template.json",
     "LICENSE",
     "README.md"
 ]
@@ -52,7 +50,7 @@ def build_release_zip():
     Create the release ZIP file containing specified files and folders.
 
     The ZIP will be named "Jellyfin Image Exporter VX.X.X.zip" based on the VERSION
-    imported from config.py.
+    imported from src/version.py.
 
     Inside the ZIP, all files and folders will be contained within a top-level
     directory named "Jellyfin Image Exporter VX.X.X" to keep everything organized.

@@ -2,6 +2,7 @@ import sys
 sys.dont_write_bytecode = True
 import os
 from .export_prompts import ExportPrompts
+from .colors import Colors
 
 class AutoGenerator:
     @staticmethod
@@ -22,7 +23,9 @@ class AutoGenerator:
         # Extract required fields from selected_library
         library_name = selected_library.get("Name", "Unknown")
         library_roots = selected_library.get("Locations", [])
-        library_type = selected_library.get("CollectionType", "").lower()
+        library_type = (selected_library.get("CollectionType") or "").lower()
+        if not library_type:
+            library_type = "mixed"
         library_id = selected_library.get("ItemId")
 
         structured_data = {
@@ -45,19 +48,30 @@ class AutoGenerator:
         # Build the base command
         final_command = [
             "main.py",
-            f"--library_id {library_id}",
-            f"--export_method {export_method}",
-            f"--episode_thumbnails {export_episode_thumbs}",
-            f"--target_paths \"{joined_paths}\"",
-            f"--connection_method {connection_method}"
+            f"--library-id \"{library_id}\"",
+            f"--export-method {export_method}",
+            f"--episode-thumbnails {export_episode_thumbs}",
+            f"--target-paths \"{joined_paths}\"",
+            f"--connection-method {connection_method}"
         ]
+
+        # Add the music cover filename choice for music libraries
+        if library_type == "music":
+            music_folder_name = export_options.get("music_folder_name", "folder")
+            music_folder_name_arg = "1" if music_folder_name == "folder" else "2"
+            final_command.append(f"--music-folder-name {music_folder_name_arg}")
+
+        # Add the wipe flag if the generated command should clear each
+        # target path's existing content before exporting
+        if export_options.get("wipe_existing_exports"):
+            final_command.append("--wipe-existing-exports")
 
         # Add connection-specific parameters
         if connection_method == "parameters":
             final_command.extend([
                 f"--url \"{export_options.get('jellyfin_url', '')}\"",
-                f"--api_key \"{export_options.get('api_key', '')}\"",
-                f"--library_path \"{export_options.get('library_path', '')}\""
+                f"--api-key \"{export_options.get('api_key', '')}\"",
+                f"--library-path \"{export_options.get('library_path', '')}\""
             ])
 
         # Join all parts into a single command string
@@ -65,12 +79,14 @@ class AutoGenerator:
 
         # Output result
         AutoGenerator.clear_screen()
-        print("=== Automation Command ===")
+        print(Colors.wrap("=== Automation Command ===", Colors.CYAN, Colors.BOLD))
         print("\nCopy this command for automated execution:\n")
-        print(final_command_str)
+        print(Colors.wrap(final_command_str, Colors.GREEN))
 
         print("\nNote: You need to add py/python/python3 in front of the command depending on how you call python scripty via CLI")
         if connection_method == "file":
-            print("Ensure connection.json exists and is valid")
+            print("Ensure config.cfg has a valid url, api_key and library_path")
+        if export_options.get("wipe_existing_exports"):
+            print(Colors.wrap("WARNING: This command wipes all existing files in the target path(s) before exporting!", Colors.RED, Colors.BOLD))
         input("\nPress Enter to return to main menu...")
         return True

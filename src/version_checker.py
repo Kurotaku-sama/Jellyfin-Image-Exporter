@@ -4,7 +4,9 @@ import os
 import json
 import urllib.request
 import urllib.error
-from config import VERSION, REPO_API_URL, PROJECT_URL
+from .version import VERSION
+from .github import REPO_API_URL, PROJECT_URL
+from .colors import Colors
 
 class VersionChecker:
     @staticmethod
@@ -20,13 +22,13 @@ class VersionChecker:
         5. On update availability, offer to open the GitHub project page for download
         """
         os.system("cls" if os.name == "nt" else "clear")
-        print("Checking for updates via GitHub Releases...")
+        print(Colors.wrap("Checking for updates via GitHub Releases...", Colors.CYAN, Colors.BOLD))
 
         try:
             # Request the latest release JSON data from GitHub API
             with urllib.request.urlopen(REPO_API_URL, timeout=10) as response:
                 if response.status != 200:
-                    print(f"\n❌ Server returned status code: {response.status}")
+                    print(Colors.wrap(f"\n❌ Server returned status code: {response.status}", Colors.RED))
                     raise Exception("Bad response from GitHub API")
 
                 release_data = json.loads(response.read().decode("utf-8"))
@@ -35,14 +37,14 @@ class VersionChecker:
                 remote_version = release_data.get("tag_name", "").lstrip("v")
 
                 if not remote_version:
-                    print("\n❌ Could not find 'tag_name' in the latest release data.")
+                    print(Colors.wrap("\n❌ Could not find 'tag_name' in the latest release data.", Colors.RED))
                     raise Exception("No version info in release data")
 
                 # Compare local and remote versions
                 result = VersionChecker._compare_versions(VERSION, remote_version)
 
                 if result == -1:
-                    print(f"\n⚠️ Update available!")
+                    print(Colors.wrap("\n⚠️ Update available!", Colors.YELLOW, Colors.BOLD))
                     print(f"New version {remote_version} is available.")
                     print(f"You are using version {VERSION}.")
 
@@ -53,14 +55,14 @@ class VersionChecker:
                         VersionChecker._open_project_page()
 
                 elif result == 0:
-                    print("\n✓ You are using the latest version.")
+                    print(Colors.wrap("\n✓ You are using the latest version.", Colors.GREEN))
                     input("\nPress Enter to continue...")
                 else:
-                    print("\n⚠️ You are using a development version (newer than latest release).")
+                    print(Colors.wrap("\n⚠️ You are using a development version (newer than latest release).", Colors.YELLOW))
                     input("\nPress Enter to continue...")
 
         except (urllib.error.URLError, urllib.error.HTTPError, Exception) as e:
-            print(f"\n❌ Failed to check for updates: {str(e)}")
+            print(Colors.wrap(f"\n❌ Failed to check for updates: {str(e)}", Colors.RED))
 
             # Ask if user wants to open the project page manually on error
             print("\nDo you want to open the project page? [y/n]")

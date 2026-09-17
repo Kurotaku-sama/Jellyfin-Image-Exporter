@@ -4,6 +4,7 @@ import json
 import re
 import urllib.request
 import urllib.error
+from .version import VERSION
 
 class Jellyfin:
     """
@@ -72,7 +73,7 @@ class Jellyfin:
             headers = {
                 **styles[index],
                 "Accept": "application/json",
-                "User-Agent": "JellyfinImageExporter/1.0",
+                "User-Agent": f"JellyfinImageExporter/{VERSION}",
             }
             req = urllib.request.Request(url, headers=headers)
 
@@ -187,12 +188,17 @@ class Jellyfin:
             print(f"Error while fetching libraries: {e}")
             return []
 
-    def get_library_items(self, library_id):
+    def get_library_items(self, library_id, item_types="Movie,Series"):
         """
-        Get all items (movies/series) in a specific library.
+        Get all items of the given type(s) in a specific library.
 
         Args:
             library_id (str): ID of the library to query
+            item_types (str): Comma-separated Jellyfin item type names to
+                request from the API, e.g. "Movie,Series", "MusicVideo",
+                "Video", or "MusicAlbum". Filtering by type here means the
+                server only returns items of that kind, instead of every
+                item under the library being fetched and filtered locally.
 
         Returns:
             list: List of media items or empty list on error
@@ -202,7 +208,7 @@ class Jellyfin:
                 f"{self.url}/Items?"
                 f"ParentId={library_id}&"
                 f"Recursive=true&"
-                f"IncludeItemTypes=Movie,Series&"
+                f"IncludeItemTypes={item_types}&"
                 f"fields=Path,ImageTags,Id,Name,Type"
             )
             with self._request_with_auth_fallback(url) as response:
@@ -247,20 +253,3 @@ class Jellyfin:
         except Exception as e:
             print(f"Error fetching episodes: {str(e)}")
             return []
-
-    def get_series_paths(self, library_id):
-        """
-        Get paths for all TV series in a library (legacy method).
-
-        Args:
-            library_id (str): ID of the library
-
-        Returns:
-            list: List of dictionaries with series paths
-        """
-        results = []
-        items = self.get_library_items(library_id)
-        for item in items:
-            if item.get("Type") == "Series" and (item_path := item.get("Path")):
-                results.append({"type": "tvshow", "path": item_path})
-        return results
