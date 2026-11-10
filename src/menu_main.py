@@ -16,7 +16,7 @@ class MenuMain:
     def show_main_menu():
         while True:
             MenuMain.clear_screen()
-            print(Colors.wrap(f"=== Jellyfin Image Exporter {VERSION + ' ' if VERSION else ''}by Kurotaku===", Colors.CYAN, Colors.BOLD) + "\n")
+            print(Colors.wrap(f"=== Jellyfin Image Exporter {VERSION + ' ' if VERSION else ''}by Kurotaku ===", Colors.CYAN, Colors.BOLD) + "\n")
             print("0. Exit")
             print("1. Read from connection settings")
             print("2. Connect via user input")

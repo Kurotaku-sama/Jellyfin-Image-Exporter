@@ -136,16 +136,8 @@ class MenuLibrary:
             raw_libraries = jellyfin.get_libraries()
             return_to_main = False # Only set on True if after the auto command generation, this will send the user back to main instead library menu
 
-            # Library content types this tool can prepare and export images for
-            supported_collection_types = ("tvshows", "movies", "musicvideos", "homevideos", "music")
-
             while True:
                 MenuLibrary.clear_screen()
-                max_index = 1 + len([lib for lib in raw_libraries if (lib.get("CollectionType") or "").lower() in supported_collection_types or not lib.get("CollectionType")]) - 1
-                index_width = len(str(max_index)) if max_index > 0 else 1
-
-                print(Colors.wrap("=== Select Library for Command Generator ===" if automation_mode else "=== Select Library ===", Colors.CYAN, Colors.BOLD))
-                print(f"{'0'.rjust(index_width)}. Return to main menu")
 
                 # Handle case when no libraries are found
                 if not raw_libraries:
@@ -202,6 +194,9 @@ class MenuLibrary:
                 )
                 max_index = current_index + total_supported - 1
                 index_width = len(str(max_index)) if max_index >= current_index else 1  # for example: 100 = 3
+
+                print(Colors.wrap("=== Select Library for Command Generator ===" if automation_mode else "=== Select Library ===", Colors.CYAN, Colors.BOLD))
+                print(f"{'0'.rjust(index_width)}. Return to main menu")
 
                 # Display each supported library type in its own section, if any exist
                 sections = (
@@ -267,11 +262,17 @@ class MenuLibrary:
             print(Colors.wrap(f"=== {library_name} ===", Colors.CYAN, Colors.BOLD))
             print(Colors.wrap("Library items could not be fetched. The library may be empty or unavailable.", Colors.YELLOW))
             input("Press Enter to return to library selection...")
-            MenuLibrary.show_library_menu(jellyfin)
             return
 
         # Show export preview
         ExportPrepare.show_export_preview(structured_data)
+
+        # Without a single cached image there is nothing to export, so the
+        # export menu is skipped entirely
+        if not ExportPrepare.has_exportable_files(structured_data):
+            print(Colors.wrap("\nNo cached images found in this library, nothing to export.", Colors.YELLOW))
+            input("Press Enter to return to library selection...")
+            return
 
         # Print separator with extra newline
         print(Colors.wrap("\n" + "="*50 + "\n", Colors.CYAN, Colors.BOLD))

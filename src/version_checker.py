@@ -1,6 +1,7 @@
 import sys
 sys.dont_write_bytecode = True
 import os
+import re
 import json
 import urllib.request
 import urllib.error
@@ -54,6 +55,8 @@ class VersionChecker:
                     choice = input("→ ").strip().lower()
                     if choice in ("y", "j"):
                         VersionChecker._open_project_page()
+                    else:
+                        input("\nPress Enter to continue...")
 
                 elif result == 0:
                     print(Colors.wrap("\n✓ You are using the latest version.", Colors.GREEN))
@@ -62,7 +65,7 @@ class VersionChecker:
                     print(Colors.wrap("\n⚠️ You are using a development version (newer than latest release).", Colors.YELLOW))
                     input("\nPress Enter to continue...")
 
-        except (urllib.error.URLError, urllib.error.HTTPError, Exception) as e:
+        except Exception as e:
             print(Colors.wrap(f"\n❌ Failed to check for updates: {str(e)}", Colors.RED))
 
             # Ask if user wants to open the project page manually on error
@@ -70,11 +73,15 @@ class VersionChecker:
             choice = input("→ ").strip().lower()
             if choice in ("y", "j"):
                 VersionChecker._open_project_page()
+            else:
+                input("\nPress Enter to continue...")
 
     @staticmethod
     def _compare_versions(version1, version2):
         """
-        Compare two semantic version strings numerically.
+        Compare two version strings numerically. Only the leading dotted
+        number sequence counts, so any suffix like "-beta" or "rc1" is
+        ignored and e.g. "1.2-beta" compares equal to "1.2".
 
         Args:
             version1 (str): First version string (e.g. "1.2.3")
@@ -85,9 +92,8 @@ class VersionChecker:
                  0 if version1 == version2,
                  1 if version1 > version2
         """
-        # Split version strings into integer components
-        v1_parts = list(map(int, version1.split(".")))
-        v2_parts = list(map(int, version2.split(".")))
+        v1_parts = VersionChecker._parse_version(version1)
+        v2_parts = VersionChecker._parse_version(version2)
 
         # Pad the shorter version with zeros for equal length comparison
         max_len = max(len(v1_parts), len(v2_parts))
@@ -101,6 +107,18 @@ class VersionChecker:
             elif v1 > v2:
                 return 1
         return 0
+
+    @staticmethod
+    def _parse_version(version):
+        """
+        Extracts the leading dotted number sequence of a version string as
+        a list of integers, e.g. "1.2.3-beta" -> [1, 2, 3]. A string without
+        any leading number yields [0].
+        """
+        match = re.match(r"\s*(\d+(?:\.\d+)*)", version)
+        if not match:
+            return [0]
+        return [int(part) for part in match.group(1).split(".")]
 
     @staticmethod
     def _open_project_page():

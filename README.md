@@ -29,11 +29,11 @@ The script uses Jellyfin's internal metadata structure and mimics the folder lay
 - Supports both **interactive menu mode** and **command-line automation**
 - Supports **TV Shows, Movies, Music Videos, Home Videos & Photos, Music, and Mixed libraries** (see [Supported Library Types](#supported-library-types))
 - Handles:
-  - Series posters/banners
-  - Season posters
+  - Series artwork (poster, backdrop, banner, logo, etc.)
+  - Season artwork (poster, fanart, banner, landscape), named the way Jellyfin expects it (see [Season images](#season-images))
   - Episode thumbnails (optional)
   - Movie/Music Video/Home Video artwork
-  - Music album covers, with a choice between `folder` and `cover` as the filename
+  - Music album artwork, with a choice between `folder` and `cover` as the cover filename
 - **Preserves folder structure** matching your media library, including artist/subfolder nesting for movies, music videos, home videos, and music albums
 - **Smart file comparison** only updates changed files
 - Supports **multiple library roots** with flexible export paths
@@ -41,6 +41,7 @@ The script uses Jellyfin's internal metadata structure and mimics the folder lay
 - **Windows long path support** (>260 characters)
 - **Command-line interface** with intuitive menus and colored output
 - Works against both older Jellyfin versions (10.x) and Jellyfin 12.0+, which switched to a different authentication header by default
+- Works with Jellyfin servers running on Linux, Docker (e.g. Unraid) or Windows
 - **No third-party dependencies** runs on plain Python out of the box
 
 ---
@@ -53,7 +54,7 @@ The script uses Jellyfin's internal metadata structure and mimics the folder lay
 | Movies | ✅ | Folder structure preserved |
 | Music Videos | ✅ | Treated the same as movies |
 | Home Videos & Photos | ✅ | Only video items are exported; standalone photos have no companion artwork |
-| Music | ✅ | Album-level covers, with a choice of filename convention |
+| Music | ✅ | Album-level artwork, with a choice of cover filename convention; artist images are not exported |
 | Mixed Content (no fixed type) | ✅ | Series items are treated as series, movie items are treated as movies, in a single combined export |
 | Books | ❌ | Not supported |
 | Photos-only | ❌ | Not supported |
@@ -93,7 +94,7 @@ Before exporting to your media folder, it's recommended to run a test export int
 1. **Configure connection** to your Jellyfin server via the **"Edit Config"** menu:
    - Server URL
    - API key
-   - Path to Jellyfin metadata folder
+   - Path to the Jellyfin metadata `library` folder (see [Configuration](#configuration))
    - Colored console output (Enabled/Disabled)
 
 2. **Select a library** to export from, grouped by type (see [Supported Library Types](#supported-library-types))
@@ -126,7 +127,7 @@ python main.py --library-id "your-library-id" --export-method "single|separate" 
 - `--wipe-existing-exports`: Wipes all existing files in each target path before exporting (flag, no value; default: not set/`false`). Useful to remove leftover exports for items that no longer exist in your library, but cannot be undone
 - `--url`: Jellyfin server URL (required if `connection-method=parameters`)
 - `--api-key`: Jellyfin API key (required if `connection-method=parameters`)
-- `--library-path`: Path to the Jellyfin metadata folder (required if `connection-method=parameters`)
+- `--library-path`: Path to the Jellyfin metadata `library` folder, e.g. `/var/lib/jellyfin/metadata/library` (required if `connection-method=parameters`)
 
 **Example with connection method `file`:**
 ```bash
@@ -135,7 +136,7 @@ python main.py --library-id "12345abcdef" --export-method "single" --episode-thu
 
 **Example with connection method `parameters`:**
 ```bash
-python main.py --library-id "12345abcdef" --export-method "separate" --episode-thumbnails false --target-paths "/mnt/anime|/mnt/cartoons" --connection-method parameters --url "http://localhost:8096" --api-key "123456789" --library-path "/var/lib/jellyfin/metadata"
+python main.py --library-id "12345abcdef" --export-method "separate" --episode-thumbnails false --target-paths "/mnt/anime|/mnt/cartoons" --connection-method parameters --url "http://localhost:8096" --api-key "123456789" --library-path "/var/lib/jellyfin/metadata/library"
 ```
 
 **Example for a Music library:**
@@ -228,6 +229,19 @@ This will put all .nfo files in your file system
 ### Series with nested subfolders
 
 Jellyfin does not support placing series inside subfolders within a TV Shows library; the subfolder itself gets picked up as a fake series with the nested shows treated as its seasons. Because of this, series are always exported flat under their own folder name, without preserving any subfolder structure. This matches how Jellyfin itself handles (or rather, doesn't support) that layout.
+
+### Season images
+
+Season images are written into the series folder using the names Jellyfin's local image provider looks for there:
+
+| Jellyfin image | Exported as |
+|---|---|
+| Poster | `season01-poster.jpg` |
+| Backdrop | `season01-fanart.jpg` |
+| Banner | `season01-banner.jpg` |
+| Thumb | `season01-landscape.jpg` |
+
+Specials (season 0) use `season-specials-` as prefix instead, e.g. `season-specials-poster.jpg`. Jellyfin has no series folder naming for any other season image type (e.g. a season logo or additional backdrops), so those are skipped to avoid overwriting the series' own images. Seasons without a valid season number are skipped as well.
 
 ### Music cover filename
 

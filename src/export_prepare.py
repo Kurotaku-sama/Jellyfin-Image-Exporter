@@ -407,6 +407,45 @@ class ExportPrepare:
         }
 
     @staticmethod
+    def has_exportable_files(structured_data):
+        """
+        Checks whether any entry of the prepared data has at least one
+        cached image with a known metadata directory.
+
+        Args:
+            structured_data: Prepared export data from _prepare_*_data methods
+
+        Returns:
+            bool: True if at least one image can be exported
+        """
+        # Series count if either the series itself or any of its seasons has images
+        for series in structured_data.get("series_collection", []):
+            if series["metadata_dir"] and series["series_files"]:
+                return True
+            if any(season["metadata_dir"] and season["files"] for season in series["seasons"]):
+                return True
+
+        # Movies, music videos, home videos and albums share the same entry shape
+        flat_entries = structured_data.get("movie_collection", []) + structured_data.get("album_collection", [])
+        return any(entry["metadata_dir"] and entry["files"] for entry in flat_entries)
+
+    @staticmethod
+    def _print_preview_files(files, indent=""):
+        """
+        Prints an entry's files sorted alphabetically. A blank line follows
+        only when at least one file was listed, so entries without any
+        cached images stay compact directly below each other.
+
+        Args:
+            files (list): Image filenames of the entry
+            indent (str): Prefix placed before each "- filename" line
+        """
+        for filename in sorted(files):
+            print(f"{indent}- {filename}")
+        if files:
+            print()
+
+    @staticmethod
     def show_export_preview(structured_data):
         """
         Displays a preview of the files that will be exported.
@@ -414,48 +453,35 @@ class ExportPrepare:
         Args:
             structured_data: Prepared export data from _prepare_*_data methods
         """
+        print_files = ExportPrepare._print_preview_files
+
         # Print header with library name
-        print(Colors.wrap(f"=== Export Preview: {structured_data['library_name']}===", Colors.CYAN, Colors.BOLD))
+        print(Colors.wrap(f"=== Export Preview: {structured_data['library_name']} ===", Colors.CYAN, Colors.BOLD))
 
         # Handle series type export preview
         if structured_data["type"] == "series":
             for series in structured_data["series_collection"]:
-                # Print series folder name and metadata directory
-                print(f"\n{series['folder_name']} [Metadata: {series['metadata_dir']}]")
+                # Print series folder name, metadata directory and files
+                print(f"{series['folder_name']} [Metadata: {series['metadata_dir']}]")
+                print_files(series["series_files"])
 
-                # Print all series-level files (sorted alphabetically)
-                for filename in sorted(series["series_files"]):
-                    print(f"- {filename}")
-
-                # Iterate through each season in the series
+                # Print each season's number, metadata directory and files
                 for season in series["seasons"]:
-                    # Print season number and metadata directory
-                    print(f"\n  Season {season['season_number']} [Metdata: {series['metadata_dir']}]")
-
-                    # Print all season-level files (sorted alphabetically)
-                    for filename in sorted(season["files"]):
-                        print(f"  - {filename}")
+                    print(f"  Season {season['season_number']} [Metadata: {season['metadata_dir']}]")
+                    print_files(season["files"], "  ")
 
         # Handle movies, music videos and home videos export preview - all
         # three share the same flat, per-item collection shape
         elif structured_data["type"] in ("movies", "musicvideos", "homevideos"):
             for movie in structured_data["movie_collection"]:
-                # Print item filename and metadata directory
-                print(f"\n{movie['filename']} [Metadata: {movie['metadata_dir']}]")
-
-                # Print all item files (sorted alphabetically)
-                for filename in sorted(movie["files"]):
-                    print(f"- {filename}")
+                print(f"{movie['filename']} [Metadata: {movie['metadata_dir']}]")
+                print_files(movie["files"])
 
         # Handle music library export preview
         elif structured_data["type"] == "music":
             for album in structured_data["album_collection"]:
-                # Print album folder name and metadata directory
-                print(f"\n{album['folder_name']} [Metadata: {album['metadata_dir']}]")
-
-                # Print all album-level files (sorted alphabetically)
-                for filename in sorted(album["files"]):
-                    print(f"- {filename}")
+                print(f"{album['folder_name']} [Metadata: {album['metadata_dir']}]")
+                print_files(album["files"])
 
         # Handle mixed library export preview - series and movies each in
         # their own section
@@ -463,17 +489,14 @@ class ExportPrepare:
             if structured_data["series_collection"]:
                 print(Colors.wrap("\n=== Series Items ===", Colors.BLUE, Colors.BOLD))
                 for series in structured_data["series_collection"]:
-                    print(f"\n{series['folder_name']} [Metadata: {series['metadata_dir']}]")
-                    for filename in sorted(series["series_files"]):
-                        print(f"- {filename}")
+                    print(f"{series['folder_name']} [Metadata: {series['metadata_dir']}]")
+                    print_files(series["series_files"])
                     for season in series["seasons"]:
-                        print(f"\n  Season {season['season_number']} [Metdata: {series['metadata_dir']}]")
-                        for filename in sorted(season["files"]):
-                            print(f"  - {filename}")
+                        print(f"  Season {season['season_number']} [Metadata: {season['metadata_dir']}]")
+                        print_files(season["files"], "  ")
 
             if structured_data["movie_collection"]:
                 print(Colors.wrap("\n=== Movie Items ===", Colors.BLUE, Colors.BOLD))
                 for movie in structured_data["movie_collection"]:
-                    print(f"\n{movie['filename']} [Metadata: {movie['metadata_dir']}]")
-                    for filename in sorted(movie["files"]):
-                        print(f"- {filename}")
+                    print(f"{movie['filename']} [Metadata: {movie['metadata_dir']}]")
+                    print_files(movie["files"])

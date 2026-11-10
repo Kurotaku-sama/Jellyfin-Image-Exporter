@@ -156,15 +156,19 @@ class Jellyfin:
                 for image in images:
                     if "Path" in image:
                         # Pattern explanation:
-                        # library/ - constant path segment
-                        # (\w{2}/\w{32}) - captures metadata dir (2 hex chars + 32 hex chars)
-                        # /(.+) - captures filename
-                        match = re.search(r"library/(\w{2}/\w{32})/(.+)", image["Path"])
+                        # library[\\/] - constant path segment, with either
+                        #   separator since a Jellyfin server on Windows
+                        #   reports backslash paths
+                        # (\w{2})[\\/](\w{32}) - metadata dir (2 + 32 hex chars)
+                        # [\\/](.+) - filename
+                        match = re.search(r"library[\\/](\w{2})[\\/](\w{32})[\\/](.+)", image["Path"])
 
                         if match:
-                            if not metadata_dir:  # Only set metadata_dir once
-                                metadata_dir = match.group(1)
-                            files.append(match.group(2))
+                            # Only set metadata_dir once, always joined with
+                            # "/" which os.path.join handles on every OS
+                            if not metadata_dir:
+                                metadata_dir = f"{match.group(1)}/{match.group(2)}"
+                            files.append(match.group(3))
 
                 return {
                     "metadata_dir": metadata_dir,  # Directory where images are stored

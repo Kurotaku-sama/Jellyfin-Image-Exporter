@@ -6,6 +6,21 @@ import shutil
 from .colors import Colors
 
 class Exporter:
+    # Maps a cached season image name (without extension) to the suffix
+    # Jellyfin's local image provider expects for season images inside the
+    # series folder, e.g. "season01-fanart.jpg". Jellyfin only recognizes
+    # poster, fanart, banner and landscape there.
+    SEASON_IMAGE_SUFFIXES = {
+        "poster": "poster",
+        "folder": "poster",
+        "cover": "poster",
+        "backdrop": "fanart",
+        "fanart": "fanart",
+        "banner": "banner",
+        "landscape": "landscape",
+        "thumb": "landscape"
+    }
+
     @staticmethod
     def normalize_path(path):
         """Cross-platform path normalization with optional Windows Long Path support.
@@ -302,14 +317,14 @@ class Exporter:
                         has_files_to_copy = True
                         break
 
-            # Check episode thumbnails if enabled
-            if not has_files_to_copy and export_options.get("export_episode_thumbs", False):
-                episodes = jellyfin.get_episodes(series["id"])
-                for episode in episodes:
-                    episode_images = jellyfin.get_item_images(episode["Id"])
-                    if episode_images["metadata_dir"] and len(episode_images["files"]) > 0:
-                        has_files_to_copy = True
-                        break
+            # Fetch episode thumbnails once, used for both the check below
+            # and the export step
+            episode_thumbs = []
+            if export_options.get("export_episode_thumbs", False):
+                episode_thumbs = Exporter._fetch_episode_thumbnails(jellyfin, series)
+
+            if not has_files_to_copy and episode_thumbs:
+                has_files_to_copy = True
 
             # Only proceed if there are files to copy
             if not has_files_to_copy:
@@ -332,7 +347,7 @@ class Exporter:
                 lambda: Exporter._process_season_images(series, dest_dir, library_metadata_path),
 
                 # 3. Process episode thumbnails (if enabled)
-                lambda: Exporter._process_episode_thumbnails(jellyfin, series, current_target_path, library_metadata_path)
+                lambda: Exporter._process_episode_thumbnails(episode_thumbs, series, current_target_path, library_metadata_path)
                     if export_options.get("export_episode_thumbs", False)
                     else (0,) * 7  # Return zero counters if disabled
             ]
@@ -406,33 +421,35 @@ class Exporter:
         if len(series["seasons"]) > 0:
             print(Colors.wrap("Processing season images:", Colors.MAGENTA))
         for season in series["seasons"]:
+            # Skip if no metadata directory exists for this season
+            if not season["metadata_dir"] or not season["files"]:
+                continue
+
+            # Build the filename prefix Jellyfin looks for in the series
+            # folder: "season-specials" for season 0, "seasonNN" otherwise
+            try:
+                season_num = int(season["season_number"])
+            except (ValueError, TypeError):
+                print(Colors.wrap(f"  Skipped season with invalid number: {season['season_number']}", Colors.YELLOW))
+                continue
+            season_prefix = "season-specials" if season_num == 0 else f"season{season_num:02d}"
+
             # Process each image file in the season
             for filename in season["files"]:
                 try:
-                    # Skip if no metadata directory exists for this season
-                    if not season["metadata_dir"]:
+                    stem, ext = os.path.splitext(filename)
+                    image_suffix = Exporter.SEASON_IMAGE_SUFFIXES.get(stem.lower())
+
+                    # Jellyfin has no series folder naming for other image
+                    # types (e.g. logo, backdrop1), so exporting them would
+                    # only clash with the series' own images
+                    if image_suffix is None:
+                        print(Colors.wrap(f"  Skipped (no Jellyfin season naming): {filename}", Colors.YELLOW))
                         continue
 
-                    # Build full source path
+                    # Build full source and destination path
                     src_path = os.path.join(library_metadata_path, season["metadata_dir"], filename)
-
-                    # Special handling for season posters
-                    if "poster" in filename.lower():
-                        if season["season_number"] == 0:
-                            # Format special seasons (season 0)
-                            new_name = f"season-specials-poster{os.path.splitext(filename)[1]}"
-                        else:
-                            try:
-                                # Format regular seasons with zero-padded numbers (e.g., S01, S02)
-                                season_num = int(season["season_number"])
-                                new_name = f"season{season_num:02d}-poster{os.path.splitext(filename)[1]}"
-                            except (ValueError, TypeError):
-                                # Fallback to original filename if season number is invalid
-                                new_name = filename
-                        dest_file = os.path.join(dest_dir, new_name)
-                    else:
-                        # Use original filename for non-poster images
-                        dest_file = os.path.join(dest_dir, filename)
+                    dest_file = os.path.join(dest_dir, f"{season_prefix}-{image_suffix}{ext}")
 
                     # Copy file and update counters
                     new_counts = Exporter._copy_file_with_comparison(src_path, dest_file)
@@ -447,80 +464,80 @@ class Exporter:
         return tuple(counters)
 
     @staticmethod
-    def _process_episode_thumbnails(jellyfin, series, target_path, library_metadata_path):
+    def _fetch_episode_thumbnails(jellyfin, series):
         """
-        Exports episode thumbnails if enabled in export options.
+        Collects every episode of a series that has a cached thumbnail.
+
+        Args:
+            jellyfin: Jellyfin API instance
+            series (dict): Series data including its Jellyfin id
+
+        Returns:
+            list: (episode, metadata_dir, filename) tuples, one per episode
+            with a valid path, metadata directory and poster.jpg image
+        """
+        episode_thumbs = []
+        for episode in jellyfin.get_episodes(series["id"]):
+            if not episode.get("Path"):
+                continue
+
+            episode_images = jellyfin.get_item_images(episode["Id"])
+            if not episode_images["metadata_dir"]:
+                continue
+
+            # Jellyfin caches an episode's thumbnail as poster.jpg, the
+            # first case-insensitive match keeps its original spelling
+            thumb_file = next((f for f in episode_images["files"] if f.lower() == "poster.jpg"), None)
+            if thumb_file:
+                episode_thumbs.append((episode, episode_images["metadata_dir"], thumb_file))
+        return episode_thumbs
+
+    @staticmethod
+    def _process_episode_thumbnails(episode_thumbs, series, target_path, library_metadata_path):
+        """
+        Exports episode thumbnails as "<episode file name>-thumb.jpg" next
+        to the episode, mirroring its subfolder inside the series folder.
+
+        Args:
+            episode_thumbs (list): Result of _fetch_episode_thumbnails
+            series (dict): Series data including folder_name and path
+            target_path (str): Export root the series folder is created in
+            library_metadata_path (str): Base metadata directory
+
+        Returns:
+            tuple: Counters for various operations (7 values)
         """
         counters = [0]*7  # Initialize all counters to 0
 
-        # Get all episodes for the series from Jellyfin
-        episodes = jellyfin.get_episodes(series["id"])
-
-        # Fetch each episode's image metadata once and reuse it for both the
-        # pre-check below and the processing loop that follows.
-        episode_images_by_id = {
-            episode["Id"]: jellyfin.get_item_images(episode["Id"]) for episode in episodes
-        }
-
-        # Check if there are any episode thumbnails to copy
-        has_thumbnails_to_copy = any(
-            images["metadata_dir"] and any(f.lower() == "poster.jpg" for f in images["files"])
-            for images in episode_images_by_id.values()
-        )
-
-        if not has_thumbnails_to_copy:
+        if not episode_thumbs:
             print(Colors.wrap("  No episode thumbnails found", Colors.YELLOW))
             return tuple(counters)
 
         print(Colors.wrap("Processing episode thumbnails:", Colors.MAGENTA))
-        for episode in episodes:
+        for episode, metadata_dir, thumb_file in episode_thumbs:
             try:
-                # Reuse the image metadata fetched above instead of querying again
-                episode_images = episode_images_by_id[episode["Id"]]
-
-                # Skip if no valid metadata or path
-                if not episode_images["metadata_dir"] or not episode.get("Path", ""):
-                    continue
-
                 # Calculate relative path within the series
                 rel_path = os.path.dirname(episode["Path"].replace(series["path"], "", 1)).strip("/\\")
                 dest_dir = os.path.join(target_path, series["folder_name"], rel_path)
 
-                # Only create directory if we actually have thumbnails to copy
-                if any(f.lower() == "poster.jpg" for f in episode_images["files"]):
-                    # Create the destination directory and track whether it
-                    # required Windows long-path handling.
-                    success, is_long_path = Exporter._safe_makedirs(dest_dir)
-                    if success and is_long_path:
-                        counters[6] += 1
+                # Create the destination directory and track whether it
+                # required Windows long-path handling
+                success, is_long_path = Exporter._safe_makedirs(dest_dir)
+                if success and is_long_path:
+                    counters[6] += 1
 
                 # Sanitize episode name for filesystem use
-                episode_name = re.sub(r'[\\/*?:"<>|]', "",
-                                    os.path.splitext(os.path.basename(episode["Path"]))[0])
+                episode_name = re.sub(r'[\\/*?:"<>|]', "", os.path.splitext(os.path.basename(episode["Path"]))[0])
 
-                # Process each image file (we only want poster.jpg)
-                for filename in episode_images["files"]:
-                    try:
-                        # Skip non-thumbnail files
-                        if filename.lower() != "poster.jpg":
-                            continue
+                src_path = os.path.join(library_metadata_path, metadata_dir, thumb_file)
+                dest_file = os.path.join(dest_dir, f"{episode_name}-thumb.jpg")
 
-                        # Build full paths
-                        src_path = os.path.join(library_metadata_path,
-                                            episode_images["metadata_dir"],
-                                            filename)
-                        dest_file = os.path.join(dest_dir, f"{episode_name}-thumb.jpg")
-
-                        # Copy and count operations
-                        new_counts = Exporter._copy_file_with_comparison(src_path, dest_file)
-                        counters = [sum(x) for x in zip(counters, new_counts)]
-
-                    except Exception as e:
-                        print(Colors.wrap(f"Error processing episode thumb {filename}: {e}", Colors.RED))
-                        counters[5] += 1
+                # Copy and count operations
+                new_counts = Exporter._copy_file_with_comparison(src_path, dest_file)
+                counters = [sum(x) for x in zip(counters, new_counts)]
 
             except Exception as e:
-                print(Colors.wrap(f"Error processing episode: {e}", Colors.RED))
+                print(Colors.wrap(f"Error processing episode thumbnail: {e}", Colors.RED))
                 counters[5] += 1
 
         return tuple(counters)
